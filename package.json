@@ -1,0 +1,19 @@
+{
+  "name": "CaveMapReader",
+  "version": "0.0.1",
+  "description": "",
+  "main": "CaveMapReader.js",
+  "dependencies": {
+    "buffer-dataview": "^0.0.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Angus Sawyer",
+  "license": "MIT",
+  "repository" :
+  { "type" : "git"
+  , "url" : "https://github.com/aardgoose/CaveMapReader.git"
+  }
+}

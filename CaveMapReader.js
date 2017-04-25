@@ -1,0 +1,197 @@
+//
+// Cavemap -> Survex converter
+// author @aardgoose
+//
+// reads CAVEMAP '.CMP' data files and produces survex .svx output
+//
+// caveats 
+//		output may require some editing to correct survex incompatible station names
+//		splay legs may not be handled correctly yet
+//
+
+const fs = require('fs');
+var DataView = require('buffer-dataview');
+
+function CaveMapReader ( dataStream ) {
+
+	var i;
+
+	this.source = new Buffer( dataStream );  // file data as RW arrrayBuffer 
+	this.pos    = 0;                         // file position
+
+	this.shotCount = 0;
+	this.knownPointCount = 0;
+
+	this.stations = [];
+	this.knownPoints = [];
+
+	this.readHeader();
+
+	// read shots
+
+	for ( i = 0; i < this.shotCount; i++ ) {
+
+		this.readShot( i );
+
+	}
+
+	for ( i = 0; i < this.knownPointCount; i++ ) {
+
+		this.readKnownPoint( i );
+
+	}
+
+}
+
+CaveMapReader.prototype.constructor = CaveMapReader;
+
+CaveMapReader.prototype.readHeader = function () {
+
+	var f;
+
+	f = new DataView( this.source, this.pos );
+
+	// original names for these fields
+
+	var o2 = f.getInt16( 0, true ); // number of known points
+	var o5 = f.getInt16( 2, true ); // number of shots
+
+	this.pos += 4;
+
+	var title = this.readString( 30 );
+	var notes = this.readString( 161 );
+
+	// console.log( 'o2: ', o2 );
+
+	var compassCorrection    = this.readFloat().toFixed( 2 );
+	var clinometerCorrection = this.readFloat().toFixed( 2 );
+
+	var startStation = this.readString( 10 );
+
+	var easting   = this.readFloat().toFixed( 2 );
+	var northing  = this.readFloat().toFixed( 2 );
+	var elevation = this.readFloat().toFixed( 2 );
+
+	console.log( '; export of data from Cavemap .cmp source file' );
+	console.log( '*title', '"', title, '"' );
+	console.log( '; original notes: ', notes );
+
+	console.log( '*calibrate compass', compassCorrection );
+	console.log( '*calibrate clino', clinometerCorrection );
+
+	console.log( '*fix ', startStation, easting, northing, elevation );
+
+	this.stations.push( startStation );
+
+	this.shotCount = o5;
+	this.knownPointCount = o2;
+
+}
+
+CaveMapReader.prototype.readShot = function ( shotIndex ) {
+
+	var station = this.readString( 8 );
+	var fromIndex;
+
+	var distance   = this.readFloat().toFixed( 2 );
+	var bearing    = this.readFloat().toFixed( 3 );
+	var clinometer = this.readFloat().toFixed( 3 );
+
+	var notes      = this.readString( 30 );
+
+	var o4         = this.readFloat(); // indicates prev station ID + topology etc / fixed points
+
+	if ( Math.floor( o4 ) != o4 ) {
+
+		this.knownPoints.push( station );
+
+		o4 = Math.floor( o4 );
+
+	}
+
+	if ( o4 == 0 ) {
+
+		fromIndex = shotIndex;
+
+	} else if ( o4 > 5 ||  o4 < 0 ) {
+
+		fromIndex = Math.abs( o4 ) - 6;
+
+	} else if ( o4 == 3 || o4 == 1 ) {
+
+		fromIndex = shotIndex;
+
+	} else {
+
+		console.error( 'line ', shotIndex, ' ****** error with unknown format o4 = ', o4 );
+		//return;
+
+	}
+
+//	console.log( 'line', shotIndex, ' - ', this.stations[ fromIndex ], station, ' [ ', distance, bearing, clinometer , ' ] * o4 =', o4 );
+
+	if ( notes ) {
+
+		console.log( this.stations[ fromIndex ], station, distance, bearing, clinometer, '; ', notes );
+
+	} else {
+
+		console.log( this.stations[ fromIndex ], station, distance, bearing, clinometer );
+
+	}
+
+	this.stations.push( station ); // save station name
+
+}
+
+CaveMapReader.prototype.readKnownPoint = function ( knownPointIndex ) {
+
+	var station = this.knownPoints[ knownPointIndex ];
+
+	var easting   = this.readFloat();
+	var northing  = this.readFloat();
+	var elevation = this.readFloat();
+
+	console.log( '*FIX ', station, easting, northing, elevation );
+
+}
+
+CaveMapReader.prototype.readFloat = function () {
+
+	var dv = new DataView( this.source, this.pos );
+
+	this.pos += 4;
+
+	return dv.getFloat32( 0, true );
+
+}
+
+CaveMapReader.prototype.readString = function ( len ) {
+
+	var db = [];
+	var c;
+
+	var bytes = new Uint8Array( this.source, this.pos );
+
+	for ( var i = 0; i < len; i++ ) {
+
+		c = bytes[ i + this.pos ];
+
+		if ( c === 0 ) break;
+
+		db.push( c );
+
+	}
+
+	this.pos += len;
+
+	return String.fromCharCode.apply( null, db );
+
+}
+
+
+var buffer = fs.readFileSync( "MIDDALE2.CMP" );
+
+var e = new CaveMapReader( buffer );
+
+// EOF
