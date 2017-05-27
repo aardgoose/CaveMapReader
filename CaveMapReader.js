@@ -12,18 +12,25 @@
 const fs = require('fs');
 var DataView = require('buffer-dataview');
 
-function CaveMapReader ( dataStream ) {
+function CaveMapReader ( fileName ) {
 
 	var i;
 
-	this.source = new Buffer( dataStream );  // file data as RW arrrayBuffer 
-	this.pos    = 0;                         // file position
+	var buffer = fs.readFileSync( fileName )
+	var outfileName = fileName.replace( '.CMP', '.svx' );
+	console.log( 'Coverting ', fileName, 'to ', outfileName );
+
+	this.outFile = fs.openSync( outfileName, 'w' );
+
+	this.source = new Buffer( buffer ); // file data as RW arrrayBuffer 
+	this.pos = 0; // file position
 
 	this.shotCount = 0;
 	this.knownPointCount = 0;
 
 	this.stations = [];
 	this.knownPoints = [];
+	this.lineNumber = 0;
 
 	this.readHeader();
 
@@ -41,15 +48,42 @@ function CaveMapReader ( dataStream ) {
 
 	}
 
+	fs.closeSync( this.outFile );
+
+}
+
+CaveMapReader.replace = function ( match ) {
+
+	switch ( match ) {
+
+		case ' ': return '_';
+		case '.': return '_';
+		case '/': return '-';
+		case '\'': return '-';
+
+		default:
+
+			console.log( 'CMR: invalid character [', match, '] has no replacement' );
+			return match;
+
+	}
+
 }
 
 CaveMapReader.prototype.constructor = CaveMapReader;
 
+CaveMapReader.prototype.writeLn = function () {
+
+	var line = Array.prototype.slice.call( arguments ).join( ' ' ) + '\n';
+
+	fs.writeSync( this.outFile, line );
+	this.lineNumber++;
+
+}
+
 CaveMapReader.prototype.readHeader = function () {
 
-	var f;
-
-	f = new DataView( this.source, this.pos );
+	var f = new DataView( this.source, this.pos );
 
 	// original names for these fields
 
@@ -72,14 +106,29 @@ CaveMapReader.prototype.readHeader = function () {
 	var northing  = this.readFloat().toFixed( 2 );
 	var elevation = this.readFloat().toFixed( 2 );
 
-	console.log( '; export of data from Cavemap .cmp source file' );
-	console.log( '*title', '"', title, '"' );
-	console.log( '; original notes: ', notes );
+	this.writeLn( ';' );
 
-	console.log( '*calibrate compass', compassCorrection );
-	console.log( '*calibrate clino', clinometerCorrection );
+	this.writeLn( '; CMR: export of data from Cavemap .cmp source file' );
+	this.writeLn( '; CMR: converted at ', new Date().toGMTString() );
 
-	console.log( '*fix ', startStation, easting, northing, elevation );
+	this.writeLn( ';' );
+
+	this.writeLn( '*title', '"', title, '"' );
+
+	this.writeLn( ';' );
+
+	this.writeLn( ';', notes );
+
+	this.writeLn( ';' );
+
+	this.writeLn( '*calibrate compass', compassCorrection );
+	this.writeLn( '*calibrate clino', clinometerCorrection );
+
+	this.writeLn( ';' );
+
+	this.writeLn( '*fix ', startStation, easting, northing, elevation );
+
+	this.writeLn( ';' );
 
 	this.stations.push( startStation );
 
@@ -91,7 +140,9 @@ CaveMapReader.prototype.readHeader = function () {
 CaveMapReader.prototype.readShot = function ( shotIndex ) {
 
 	var station = this.readString( 8 );
+	var stationName;
 	var fromIndex;
+	var replaced = false;
 
 	var distance   = this.readFloat().toFixed( 2 );
 	var bearing    = this.readFloat().toFixed( 3 );
@@ -100,6 +151,21 @@ CaveMapReader.prototype.readShot = function ( shotIndex ) {
 	var notes      = this.readString( 30 );
 
 	var o4         = this.readFloat(); // indicates prev station ID + topology etc / fixed points
+
+	var invalidName = /[^a-zA-Z0-9_\-]/g;
+
+	if ( invalidName.test( station ) ) {
+
+//		console.log( 'CMR: warning - invalid characters in station [', station, '] at line', this.lineNumber );
+
+		stationName = station.replace( invalidName, CaveMapReader.replace );
+		replaced = true;
+
+	} else {
+
+		stationName = station;
+
+	}
 
 	if ( Math.floor( o4 ) != o4 ) {
 
@@ -132,15 +198,17 @@ CaveMapReader.prototype.readShot = function ( shotIndex ) {
 
 	if ( notes ) {
 
-		console.log( this.stations[ fromIndex ], station, distance, bearing, clinometer, '; ', notes );
+		this.writeLn( this.stations[ fromIndex ], stationName, distance, bearing, clinometer, '; ', notes );
 
 	} else {
 
-		console.log( this.stations[ fromIndex ], station, distance, bearing, clinometer );
+		this.writeLn( this.stations[ fromIndex ], stationName, distance, bearing, clinometer );
 
 	}
 
-	this.stations.push( station ); // save station name
+	if ( replaced ) this.writeLn( '; CMR: *** invalid characters in station name [', station, '] replaced with ', stationName, '***' );
+
+	this.stations.push( stationName ); // save station name
 
 }
 
@@ -152,7 +220,7 @@ CaveMapReader.prototype.readKnownPoint = function ( knownPointIndex ) {
 	var northing  = this.readFloat();
 	var elevation = this.readFloat();
 
-	console.log( '*FIX ', station, easting, northing, elevation );
+	this.writeLn( '*FIX ', station, easting, northing, elevation );
 
 }
 
@@ -189,9 +257,19 @@ CaveMapReader.prototype.readString = function ( len ) {
 
 }
 
+var files = fs.readdirSync( '.' );
 
-var buffer = fs.readFileSync( "MIDDALE2.CMP" );
+var fileName, i, l;
 
-var e = new CaveMapReader( buffer );
+for ( i = 0, l = files.length; i < l; i++ ) {
+
+	var fileName = files[ i ];
+
+	if ( ! /.*\.CMP$/.test( fileName ) ) continue;
+
+	new CaveMapReader( fileName );
+
+}
+
 
 // EOF
